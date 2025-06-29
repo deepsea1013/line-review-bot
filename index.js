@@ -1,5 +1,5 @@
 import express from 'express';
-import line from '@line/bot-sdk';
+import * as line from '@line/bot-sdk';
 import OpenAI from 'openai';
 
 // 環境変数の読み込み（ローカル用。Renderでは不要）
