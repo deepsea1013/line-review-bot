@@ -1,8 +1,6 @@
 import express from 'express';
 import * as line from '@line/bot-sdk';
 import OpenAI from 'openai';
-
-// 環境変数の読み込み（ローカル用。Renderでは不要）
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -11,16 +9,28 @@ const port = process.env.PORT || 3000;
 
 // LINE Botの設定
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || 'SdpqLzky299pljImmG5FTudhe1aILlS/FNy04zVT2BINYEgvqhgcxeWkab/paJH8/wojoroo89pfpHF+byaJgZrF1brIeUcRGGsYT7e5LZ+QWFU1H1uWfW1BLBoeBlcW/HrY1VbJUiyCqs1D83aEzAdB04t89/1O/w1cDnyilFU=',
-  channelSecret: process.env.LINE_CHANNEL_SECRET || '7752ec2a6d1103d794cf1c13ad16270e',
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-
 const client = new line.Client(config);
 
-// OpenAIの設定（v4形式）
+// OpenAI設定
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,  // ← これだけでOK
+  apiKey: process.env.OPENAI_API_KEY,
 });
+
+// ユーザー状態保存
+const userStates = {};
+
+const genres = [
+  "異世界ファンタジー", "現代ファンタジー", "SF", "恋愛", "ラブコメ",
+  "現代ドラマ", "ホラー", "ミステリー", "エッセイ・ノンフィクション",
+  "歴史・時代系", "詩・童話", "その他"
+];
+
+const aspects = [
+  "ストーリー", "キャラクター", "構成", "文章", "総合"
+];
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
@@ -33,26 +43,92 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 });
 
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return;
+  if (event.type !== 'message') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'ごめんなさい、画像やスタンプ等は解析できないんです…',
+    });
+  }
 
-  const userMessage = event.message.text;
+  const userId = event.source.userId;
+  const message = event.message.text;
 
-  const prompt = `
-以下はユーザーからの小説です。読者としてレビューをお願いします：
-${userMessage}
-`;
+  if (!userStates[userId]) {
+    userStates[userId] = { step: 'genre' };
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `ジャンルを選んでください：\n${genres.join(' / ')}`,
+    });
+  }
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: [{ role: "user", content: prompt }],
-  });
+  const state = userStates[userId];
 
-  const replyText = completion.choices[0].message.content;
+  if (state.step === 'genre') {
+    if (!genres.includes(message)) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `ジャンルを正しく選んでください：\n${genres.join(' / ')}`,
+      });
+    }
 
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: replyText,
-  });
+    state.genre = message;
+    state.step = 'aspect';
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `次にレビューの観点を選んでください：\n${aspects.join(' / ')}`,
+    });
+  }
+
+  if (state.step === 'aspect') {
+    if (!aspects.includes(message)) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `観点を正しく選んでください：\n${aspects.join(' / ')}`,
+      });
+    }
+
+    state.aspect = message;
+    state.step = 'awaiting_text';
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'あなたの小説を送ってください（1000字以上）',
+    });
+  }
+
+  if (state.step === 'awaiting_text') {
+    if (message.length < 1000) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '1000字以上で送信するようにしてください。',
+      });
+    }
+
+    const prompt = `
+ジャンル: ${state.genre}
+観点: ${state.aspect}
+
+以下はユーザーの小説です。上記のジャンルと観点に基づき、読者として丁寧なレビューをお願いします。
+
+${message}
+    `;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const replyText = completion.choices[0].message.content;
+
+    // 状態をリセット（次回またジャンル選びから）
+    userStates[userId] = null;
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyText,
+    });
+  }
 }
 
 app.listen(port, () => {
