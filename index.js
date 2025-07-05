@@ -29,6 +29,9 @@ const aspects = [
   "ストーリー", "キャラクター", "構成", "文章", "総合"
 ];
 
+const MAX_TOKENS = 128000; // gpt-4o は実際は128kまでだが、明示的制限も可
+const MAX_CHARACTERS = 30000;
+
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     await Promise.all(req.body.events.map(handleEvent));
@@ -42,7 +45,6 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 async function handleEvent(event) {
   const userId = event.source.userId;
 
-  // 非テキストメッセージ対応
   if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -109,7 +111,7 @@ async function handleEvent(event) {
     }
     state.aspect = message;
     state.step = 'awaiting_text';
-    state.buffer = ""; // バッファ初期化
+    state.buffer = "";
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'あなたの小説を送ってください（1000字以上）',
@@ -117,6 +119,7 @@ async function handleEvent(event) {
   }
 
   if (state.step === 'awaiting_text' || state.step === 'awaiting_additional_text') {
+    if (!state.buffer) state.buffer = "";
     state.buffer += '\n' + message;
 
     if (state.step === 'awaiting_text' && state.buffer.length < 1000) {
@@ -126,23 +129,43 @@ async function handleEvent(event) {
       });
     }
 
+    if (state.buffer.length > MAX_CHARACTERS) {
+      state.step = 'confirm_review_overflow';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '最大文字数を超えたため、これ以上送れません。このままレビューしてもよろしいですか？',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: 'はい', text: 'レビューしてください' } },
+            { type: 'action', action: { type: 'message', label: 'いいえ', text: 'キャンセル' } },
+          ]
+        }
+      });
+    }
+
     state.step = 'awaiting_continue_confirm';
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '続きはありますか？',
       quickReply: {
         items: [
-          {
-            type: 'action',
-            action: { type: 'message', label: 'はい', text: 'はい' }
-          },
-          {
-            type: 'action',
-            action: { type: 'message', label: 'いいえ', text: 'いいえ' }
-          }
+          { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
+          { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } },
         ]
       }
     });
+  }
+
+  if (state.step === 'confirm_review_overflow') {
+    if (message === 'レビューしてください') {
+      return generateAndSendReview(userId, event.replyToken);
+    } else if (message === 'キャンセル') {
+      userStates[userId] = null;
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'キャンセルされました。最初からやり直してください。'
+      });
+    }
   }
 
   if (state.step === 'awaiting_continue_confirm') {
@@ -153,9 +176,25 @@ async function handleEvent(event) {
         text: '続きを送ってください。',
       });
     }
-
     if (message === 'いいえ') {
-      const prompt = `以下はユーザーの小説です。
+      return generateAndSendReview(userId, event.replyToken);
+    }
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '「はい」か「いいえ」で答えてください。',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
+          { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } },
+        ]
+      }
+    });
+  }
+}
+
+async function generateAndSendReview(userId, replyToken) {
+  const state = userStates[userId];
+  const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
 
@@ -180,59 +219,39 @@ async function handleEvent(event) {
 
 ${state.buffer}`;
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: [{ role: "user", content: prompt }],
-      });
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [{ role: "user", content: prompt }],
+    });
 
-      const fullText = completion.choices[0].message.content;
+    const fullText = completion.choices[0].message.content;
+    userStates[userId] = null;
+    const messages = fullText.match(/([\s\S]{1,1900})(?=\n|$)/g);
 
-      // 状態リセット
-      userStates[userId] = null;
-
-      // 1900文字ずつ分割して送信
-      const messages = fullText.match(/[\s\S]{1,1900}/g);
-
-      if (!messages || messages.length === 0) {
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: 'レビューの生成に失敗しました。もう一度お試しください。',
-        });
-      }
-
-      // 最初は replyToken
-      await client.replyMessage(event.replyToken, {
+    if (!messages || messages.length === 0) {
+      return client.replyMessage(replyToken, {
         type: 'text',
-        text: messages[0].trim(),
+        text: 'レビューの生成に失敗しました。もう一度お試しください。',
       });
-
-      // 2通目以降 push
-      for (let i = 1; i < messages.length; i++) {
-        await client.pushMessage(userId, {
-          type: 'text',
-          text: messages[i].trim(),
-        });
-      }
-
-      return;
     }
 
-    // 「はい」「いいえ」以外が送られた場合
-    return client.replyMessage(event.replyToken, {
+    await client.replyMessage(replyToken, {
       type: 'text',
-      text: '「はい」か「いいえ」で答えてください。',
-      quickReply: {
-        items: [
-          {
-            type: 'action',
-            action: { type: 'message', label: 'はい', text: 'はい' }
-          },
-          {
-            type: 'action',
-            action: { type: 'message', label: 'いいえ', text: 'いいえ' }
-          }
-        ]
-      }
+      text: messages[0].trim(),
+    });
+
+    for (let i = 1; i < messages.length; i++) {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: messages[i].trim(),
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: 'レビューの生成中にエラーが発生しました。文章が長すぎる可能性があります。',
     });
   }
 }
