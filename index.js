@@ -29,7 +29,9 @@ const aspects = [
   "ストーリー", "キャラクター", "構成", "文章", "総合"
 ];
 
-const MAX_TOKENS = 128000; // gpt-4o は実際は128kまでだが、明示的制限も可
+const levels = ["甘口", "中辛", "辛口"];
+
+const MAX_TOKENS = 128000;
 const MAX_CHARACTERS = 30000;
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
@@ -73,7 +75,7 @@ async function handleEvent(event) {
     if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'ジャンルを正しく選んでください：',
+        text: 'ボタンを選択してください：',
         quickReply: {
           items: genres.map(g => ({
             type: 'action',
@@ -83,10 +85,37 @@ async function handleEvent(event) {
       });
     }
     state.genre = message;
+    state.step = 'level';
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'レビューのレベルを選んでください：',
+      quickReply: {
+        items: levels.map(l => ({
+          type: 'action',
+          action: { type: 'message', label: l, text: l }
+        }))
+      }
+    });
+  }
+
+  if (state.step === 'level') {
+    if (!levels.includes(message)) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ボタンを選択してください：',
+        quickReply: {
+          items: levels.map(l => ({
+            type: 'action',
+            action: { type: 'message', label: l, text: l }
+          }))
+        }
+      });
+    }
+    state.level = message;
     state.step = 'aspect';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '次にレビューの観点を選んでください：',
+      text: 'レビューの観点を選んでください：',
       quickReply: {
         items: aspects.map(a => ({
           type: 'action',
@@ -100,7 +129,7 @@ async function handleEvent(event) {
     if (!aspects.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '観点を正しく選んでください：',
+        text: 'ボタンを選択してください：',
         quickReply: {
           items: aspects.map(a => ({
             type: 'action',
@@ -114,7 +143,7 @@ async function handleEvent(event) {
     state.buffer = "";
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'あなたの小説を送ってください（1000字以上）',
+      text: 'あなたの小説を送ってください（1000字以上）。',
     });
   }
 
@@ -197,12 +226,22 @@ async function generateAndSendReview(userId, replyToken) {
   const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
+レビューのレベル: ${state.level}
 
 あなたは小説の読者です。
+レビューのレベル「${state.level}」に応じてトーンを調整してください。
+
 次のフォーマットでレビューしてください：
 
 【総合評価】
 0.0〜5.0の50段階評価で数値を出し、★の形でも視覚的に示してください。
+
+【各項目の評価】
+- ストーリー：◯◯点
+- キャラクター：◯◯点
+- 構成：◯◯点
+- 文章：◯◯点
+- オリジナリティ：◯◯点
 
 【良かった点】
 2〜4個、箇条書き。
