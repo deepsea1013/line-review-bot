@@ -153,17 +153,34 @@ ${message}`;
       messages: [{ role: "user", content: prompt }],
     });
 
-    const replyText = completion.choices[0].message.content;
+    const fullText = completion.choices[0].message.content;
 
-    const [firstPart, ...rest] = replyText.split('---');
-    const secondPart = rest.join('---').trim();
-
+    // 状態をリセット（次回はジャンル選びから）
     userStates[userId] = null;
 
-    await client.replyMessage(event.replyToken, [
-      { type: 'text', text: firstPart.trim() },
-      { type: 'text', text: secondPart }
-    ]);
+    // LINEの制限対策：2000文字未満に分割（余裕を持って1900）
+    const messages = fullText.match(/[\s\S]{1,1900}/g);
+
+    if (!messages || messages.length === 0) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'レビューの生成に失敗しました。もう一度お試しください。',
+      });
+    }
+
+    // 最初の1通は replyToken を使用
+    await client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: messages[0].trim(),
+    });
+
+    // 2通目以降は pushMessage で送信
+    for (let i = 1; i < messages.length; i++) {
+      await client.pushMessage(userId, {
+        type: 'text',
+        text: messages[i].trim(),
+      });
+    }
   }
 }
 
