@@ -42,6 +42,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 async function handleEvent(event) {
   const userId = event.source.userId;
 
+  // 非テキストメッセージ対応
   if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -50,7 +51,6 @@ async function handleEvent(event) {
   }
 
   const message = event.message.text;
-
   if (!userStates[userId]) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
@@ -109,21 +109,53 @@ async function handleEvent(event) {
     }
     state.aspect = message;
     state.step = 'awaiting_text';
+    state.buffer = ""; // バッファ初期化
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'あなたの小説を送ってください（1000字以上）',
     });
   }
 
-  if (state.step === 'awaiting_text') {
-    if (message.length < 1000) {
+  if (state.step === 'awaiting_text' || state.step === 'awaiting_additional_text') {
+    state.buffer += '\n' + message;
+
+    if (state.step === 'awaiting_text' && state.buffer.length < 1000) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '1000字以上で送信するようにしてください。',
       });
     }
 
-    const prompt = `以下はユーザーの小説です。
+    state.step = 'awaiting_continue_confirm';
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '続きはありますか？',
+      quickReply: {
+        items: [
+          {
+            type: 'action',
+            action: { type: 'message', label: 'はい', text: 'はい' }
+          },
+          {
+            type: 'action',
+            action: { type: 'message', label: 'いいえ', text: 'いいえ' }
+          }
+        ]
+      }
+    });
+  }
+
+  if (state.step === 'awaiting_continue_confirm') {
+    if (message === 'はい') {
+      state.step = 'awaiting_additional_text';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '続きを送ってください。',
+      });
+    }
+
+    if (message === 'いいえ') {
+      const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
 
@@ -146,41 +178,62 @@ async function handleEvent(event) {
 
 ---
 
-${message}`;
+${state.buffer}`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const fullText = completion.choices[0].message.content;
-
-    // 状態をリセット（次回はジャンル選びから）
-    userStates[userId] = null;
-
-    // LINEの制限対策：2000文字未満に分割（余裕を持って1900）
-    const messages = fullText.match(/[\s\S]{1,1900}/g);
-
-    if (!messages || messages.length === 0) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'レビューの生成に失敗しました。もう一度お試しください。',
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: "user", content: prompt }],
       });
+
+      const fullText = completion.choices[0].message.content;
+
+      // 状態リセット
+      userStates[userId] = null;
+
+      // 1900文字ずつ分割して送信
+      const messages = fullText.match(/[\s\S]{1,1900}/g);
+
+      if (!messages || messages.length === 0) {
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: 'レビューの生成に失敗しました。もう一度お試しください。',
+        });
+      }
+
+      // 最初は replyToken
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: messages[0].trim(),
+      });
+
+      // 2通目以降 push
+      for (let i = 1; i < messages.length; i++) {
+        await client.pushMessage(userId, {
+          type: 'text',
+          text: messages[i].trim(),
+        });
+      }
+
+      return;
     }
 
-    // 最初の1通は replyToken を使用
-    await client.replyMessage(event.replyToken, {
+    // 「はい」「いいえ」以外が送られた場合
+    return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: messages[0].trim(),
+      text: '「はい」か「いいえ」で答えてください。',
+      quickReply: {
+        items: [
+          {
+            type: 'action',
+            action: { type: 'message', label: 'はい', text: 'はい' }
+          },
+          {
+            type: 'action',
+            action: { type: 'message', label: 'いいえ', text: 'いいえ' }
+          }
+        ]
+      }
     });
-
-    // 2通目以降は pushMessage で送信
-    for (let i = 1; i < messages.length; i++) {
-      await client.pushMessage(userId, {
-        type: 'text',
-        text: messages[i].trim(),
-      });
-    }
   }
 }
 
