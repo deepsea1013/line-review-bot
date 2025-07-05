@@ -7,19 +7,16 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// LINE Botの設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(config);
 
-// OpenAI設定
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ユーザー状態保存
 const userStates = {};
 
 const genres = [
@@ -43,21 +40,28 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 });
 
 async function handleEvent(event) {
-  if (event.type !== 'message') {
+  const userId = event.source.userId;
+
+  if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'ごめんなさい、画像やスタンプ等は解析できないんです…',
     });
   }
 
-  const userId = event.source.userId;
   const message = event.message.text;
 
   if (!userStates[userId]) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `ジャンルを選んでください：\n${genres.join(' / ')}`,
+      text: 'ジャンルを選んでください：',
+      quickReply: {
+        items: genres.map(g => ({
+          type: 'action',
+          action: { type: 'message', label: g, text: g }
+        }))
+      }
     });
   }
 
@@ -67,16 +71,26 @@ async function handleEvent(event) {
     if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `ジャンルを正しく選んでください：\n${genres.join(' / ')}`,
+        text: 'ジャンルを正しく選んでください：',
+        quickReply: {
+          items: genres.map(g => ({
+            type: 'action',
+            action: { type: 'message', label: g, text: g }
+          }))
+        }
       });
     }
-
     state.genre = message;
     state.step = 'aspect';
-
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `次にレビューの観点を選んでください：\n${aspects.join(' / ')}`,
+      text: '次にレビューの観点を選んでください：',
+      quickReply: {
+        items: aspects.map(a => ({
+          type: 'action',
+          action: { type: 'message', label: a, text: a }
+        }))
+      }
     });
   }
 
@@ -84,13 +98,17 @@ async function handleEvent(event) {
     if (!aspects.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: `観点を正しく選んでください：\n${aspects.join(' / ')}`,
+        text: '観点を正しく選んでください：',
+        quickReply: {
+          items: aspects.map(a => ({
+            type: 'action',
+            action: { type: 'message', label: a, text: a }
+          }))
+        }
       });
     }
-
     state.aspect = message;
     state.step = 'awaiting_text';
-
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'あなたの小説を送ってください（1000字以上）',
@@ -105,14 +123,30 @@ async function handleEvent(event) {
       });
     }
 
-    const prompt = `
+    const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
 
-以下はユーザーの小説です。上記のジャンルと観点に基づき、読者として丁寧なレビューをお願いします。
+あなたは小説の読者です。
+次のフォーマットでレビューしてください：
 
-${message}
-    `;
+【総合評価】
+0.0〜5.0の50段階評価で数値を出し、★の形でも視覚的に示してください。
+
+【良かった点】
+2〜4個、箇条書き。
+
+【改善点】
+2〜4個、箇条書き。
+
+---
+
+【${state.aspect}について】
+この観点における表現や描写について、丁寧に講評してください。
+
+---
+
+${message}`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
@@ -121,13 +155,15 @@ ${message}
 
     const replyText = completion.choices[0].message.content;
 
-    // 状態をリセット（次回またジャンル選びから）
+    const [firstPart, ...rest] = replyText.split('---');
+    const secondPart = rest.join('---').trim();
+
     userStates[userId] = null;
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyText,
-    });
+    await client.replyMessage(event.replyToken, [
+      { type: 'text', text: firstPart.trim() },
+      { type: 'text', text: secondPart }
+    ]);
   }
 }
 
