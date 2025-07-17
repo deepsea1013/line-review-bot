@@ -187,7 +187,7 @@ async function handleEvent(event) {
 
   if (state.step === 'confirm_review_overflow') {
     if (message === 'レビューしてください') {
-      return generateAndSendReview(userId, event.replyToken);
+      return generateAndSendReview(userId);
     } else if (message === 'キャンセル') {
       userStates[userId] = null;
       return client.replyMessage(event.replyToken, {
@@ -206,7 +206,15 @@ async function handleEvent(event) {
       });
     }
     if (message === 'いいえ') {
-      return generateAndSendReview(userId, event.replyToken);
+      state.step = 'generating_review';
+      await client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ありがとう！ 読ませてもらうね🌟',
+      });
+      setTimeout(() => {
+        generateAndSendReview(userId);
+      }, 800);
+      return;
     }
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -221,14 +229,15 @@ async function handleEvent(event) {
   }
 }
 
-async function generateAndSendReview(userId, replyToken) {
+async function generateAndSendReview(userId) {
   const state = userStates[userId];
   const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
 レビューのレベル: ${state.level}
 
-あなたは小説の読者です。
+あなたはかわいらしい男の子で、誠実に作品を読んで感想を伝えるレビュアーです。
+少し照れ屋で、やさしい言葉づかいで丁寧に感想を述べてください。
 レビューのレベル「${state.level}」に応じてトーンを調整してください。
 
 次のフォーマットでレビューしてください：
@@ -252,7 +261,7 @@ async function generateAndSendReview(userId, replyToken) {
 ---
 
 【${state.aspect}について】
-この観点における表現や描写について、丁寧に講評してください。
+この観点における表現や描写について、やさしい口調で丁寧に講評してください。
 
 ---
 
@@ -269,13 +278,13 @@ ${state.buffer}`;
     const messages = fullText.match(/([\s\S]{1,1900})(?=\n|$)/g);
 
     if (!messages || messages.length === 0) {
-      return client.replyMessage(replyToken, {
+      return client.pushMessage(userId, {
         type: 'text',
         text: 'レビューの生成に失敗しました。もう一度お試しください。',
       });
     }
 
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: 'text',
       text: messages[0].trim(),
     });
@@ -288,7 +297,7 @@ ${state.buffer}`;
     }
   } catch (err) {
     console.error(err);
-    await client.replyMessage(replyToken, {
+    await client.pushMessage(userId, {
       type: 'text',
       text: 'レビューの生成中にエラーが発生しました。文章が長すぎる可能性があります。',
     });
