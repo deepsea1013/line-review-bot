@@ -56,6 +56,21 @@ async function handleEvent(event) {
   }
 
   const message = event.message.text;
+
+  if (message === 'リセット') {
+    userStates[userId] = { step: 'genre' };
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'ジャンルを選んでください：',
+      quickReply: {
+        items: genres.map(g => ({
+          type: 'action',
+          action: { type: 'message', label: g, text: g }
+        }))
+      }
+    });
+  }
+
   if (!userStates[userId]) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
@@ -72,17 +87,23 @@ async function handleEvent(event) {
 
   const state = userStates[userId];
 
+  const addResetButton = (items) => {
+    items.push({
+      type: 'action',
+      action: { type: 'message', label: 'リセット', text: 'リセット' }
+    });
+    return items;
+  };
+
   if (state.step === 'genre') {
     if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: 'ボタンを選択してください：',
-        quickReply: {
-          items: genres.map(g => ({
-            type: 'action',
-            action: { type: 'message', label: g, text: g }
-          }))
-        }
+        quickReply: { items: addResetButton(genres.map(g => ({
+          type: 'action',
+          action: { type: 'message', label: g, text: g }
+        }))) }
       });
     }
     state.genre = message;
@@ -90,12 +111,10 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'レビューのレベルを選んでください：',
-      quickReply: {
-        items: levels.map(l => ({
-          type: 'action',
-          action: { type: 'message', label: l, text: l }
-        }))
-      }
+      quickReply: { items: addResetButton(levels.map(l => ({
+        type: 'action',
+        action: { type: 'message', label: l, text: l }
+      }))) }
     });
   }
 
@@ -104,12 +123,10 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: 'ボタンを選択してください：',
-        quickReply: {
-          items: levels.map(l => ({
-            type: 'action',
-            action: { type: 'message', label: l, text: l }
-          }))
-        }
+        quickReply: { items: addResetButton(levels.map(l => ({
+          type: 'action',
+          action: { type: 'message', label: l, text: l }
+        }))) }
       });
     }
     state.level = message;
@@ -117,12 +134,10 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: 'レビューの観点を選んでください：',
-      quickReply: {
-        items: aspects.map(a => ({
-          type: 'action',
-          action: { type: 'message', label: a, text: a }
-        }))
-      }
+      quickReply: { items: addResetButton(aspects.map(a => ({
+        type: 'action',
+        action: { type: 'message', label: a, text: a }
+      }))) }
     });
   }
 
@@ -131,12 +146,10 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: 'ボタンを選択してください：',
-        quickReply: {
-          items: aspects.map(a => ({
-            type: 'action',
-            action: { type: 'message', label: a, text: a }
-          }))
-        }
+        quickReply: { items: addResetButton(aspects.map(a => ({
+          type: 'action',
+          action: { type: 'message', label: a, text: a }
+        }))) }
       });
     }
     state.aspect = message;
@@ -165,10 +178,10 @@ async function handleEvent(event) {
         type: 'text',
         text: '最大文字数を超えたため、これ以上送れません。このままレビューしてもよろしいですか？',
         quickReply: {
-          items: [
+          items: addResetButton([
             { type: 'action', action: { type: 'message', label: 'はい', text: 'レビューしてください' } },
             { type: 'action', action: { type: 'message', label: 'いいえ', text: 'キャンセル' } },
-          ]
+          ])
         }
       });
     }
@@ -178,10 +191,10 @@ async function handleEvent(event) {
       type: 'text',
       text: '続きはありますか？',
       quickReply: {
-        items: [
+        items: addResetButton([
           { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
           { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } },
-        ]
+        ])
       }
     });
   }
@@ -221,17 +234,45 @@ async function handleEvent(event) {
       type: 'text',
       text: '「はい」か「いいえ」で答えてください。',
       quickReply: {
-        items: [
+        items: addResetButton([
           { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
           { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } },
-        ]
+        ])
       }
     });
+  }
+
+  if (state.step === 'review_done') {
+    if (message.toLowerCase().includes('リセット')) {
+      userStates[userId] = { step: 'genre' };
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'ジャンルを選んでください：',
+        quickReply: {
+          items: genres.map(g => ({
+            type: 'action',
+            action: { type: 'message', label: g, text: g }
+          }))
+        }
+      });
+    } else {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '作品やレビューに関する質問をしてね！',
+      });
+    }
   }
 }
 
 async function generateAndSendReview(userId) {
   const state = userStates[userId];
+  if (!state || !state.buffer) {
+    return client.pushMessage(userId, {
+      type: 'text',
+      text: 'レビュー内容が見つかりません。最初からやり直してください。'
+    });
+  }
+
   const prompt = `以下はユーザーの小説です。
 ジャンル: ${state.genre}
 観点: ${state.aspect}
@@ -257,7 +298,7 @@ async function generateAndSendReview(userId) {
 箇条書きで3つ。小説の具体的な魅力を挙げてね。
 
 【改善点】
-箇条書きで3つ。やさしくて具体的な提案にしてね。
+箇条書きで3つ。具体的な提案にしてね。
 
 ---
 
@@ -277,32 +318,37 @@ ${state.buffer}`;
     });
 
     const fullText = completion.choices[0].message.content;
-    userStates[userId] = null;
+    userStates[userId].step = 'review_done';
     const messages = fullText.match(/([\s\S]{1,1900})(?=\n|$)/g);
 
     if (!messages || messages.length === 0) {
       return client.pushMessage(userId, {
         type: 'text',
-        text: 'レビューの生成に失敗しちゃった！もう一回試してみて！',
+        text: 'レビューの生成に失敗しました。もう一度やり直してください。',
       });
     }
 
-    await client.pushMessage(userId, {
-      type: 'text',
-      text: messages[0].trim(),
-    });
-
-    for (let i = 1; i < messages.length; i++) {
+    for (let i = 0; i < messages.length; i++) {
       await client.pushMessage(userId, {
         type: 'text',
         text: messages[i].trim(),
       });
     }
+
+    await client.pushMessage(userId, {
+      type: 'text',
+      text: '質問があれば、何でも聞いてね！\n最初からやり直す場合は、「リセット」を選択してね。',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } },
+        ]
+      }
+    });
   } catch (err) {
     console.error(err);
     await client.pushMessage(userId, {
       type: 'text',
-      text: 'レビューの生成中にエラーが出ちゃったかも。文章が長すぎたかも…？',
+      text: 'レビューの生成中にエラーが出ました。文章が最大文字数をオーバーしたかもしれません。',
     });
   }
 }
