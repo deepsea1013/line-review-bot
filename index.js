@@ -1,4 +1,4 @@
-// index.js
+// 修正済 index.js
 import express from 'express';
 import * as line from '@line/bot-sdk';
 import OpenAI from 'openai';
@@ -24,12 +24,9 @@ const genres = [
   "歴史・時代系", "詩・童話", "その他"
 ];
 
-const aspects = ["ストーリー", "キャラクター", "構成", "文章", "総合"];
 const levels = ["甘口", "中辛", "辛口"];
-const MAX_TOKENS = 128000;
 const MAX_CHARACTERS = 30000;
 
-// ←🔧 addResetButtonを外に移動
 const addResetButton = (items) => {
   items.push({
     type: 'action',
@@ -80,8 +77,14 @@ async function handleEvent(event) {
 
   const stepHandlers = {
     genre: () => handleSelection(event, genres, 'level', 'レビューのレベルを選んでください：', levels),
-    level: () => handleSelection(event, levels, 'aspect', 'レビューの観点を選んでください：', aspects),
-    aspect: () => handleSelection(event, aspects, 'awaiting_text', 'あなたの小説を送ってください（1000字以上）。'),
+    level: () => {
+      state.level = message;
+      state.step = 'awaiting_text';
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: 'あなたの小説を送ってください（1000字以上）。'
+      });
+    }
   };
 
   if (stepHandlers[state.step]) return stepHandlers[state.step]();
@@ -150,7 +153,7 @@ async function handleEvent(event) {
       });
     }
 
-    if (message.length > 5 && /作品|レビュー/.test(message)) {
+    if (/作品|レビュー/.test(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: 'いい質問だね！それについて話すね！(まだ質問への具体回答処理は未実装)',
@@ -202,7 +205,7 @@ async function generateAndSendReview(userId) {
     });
   }
 
-  const prompt = `以下はユーザーの小説です。\nジャンル: ${state.genre}\n観点: ${state.aspect}\nレビューのレベル: ${state.level}\n\nあなたは友達に話しかけるような、かわいらしい男の子のキャラクターです。\n敬語は使わず、親しみやすいフランクな口調で、しっかり読んで感想を伝えてください。\nときには主観や好みも交えてOKですが、最終的には相手の創作意欲が湧くように応援してください。\n\n次のフォーマットでレビューしてください：\n\n【総合評価】\n0.0〜5.0の50段階評価で数値を出し、★の形でも視覚的に示してね。\n\n【各項目の評価】\n- ストーリー：◯◯点\n- キャラクター：◯◯点\n- 構成：◯◯点\n- 文章：◯◯点\n- オリジナリティ：◯◯点\n※各項目は0.0〜5.0の範囲に収めてください。\n\n【良かった点】\n箇条書きで3つ。小説の具体的な魅力を挙げてね。\n\n【改善点】\n箇条書きで3つ。具体的な提案にしてね。\n\n---\n\n【${state.aspect}について】\nこの観点について、500〜600字くらいで講評してね。\nキャラやストーリーへの言及を入れつつ、自分の感じたことや好みも交えて話していいよ。\n最後はポジティブに、応援の気持ちで締めてあげてね。\n\n---\n\n${state.buffer}`;
+  const prompt = `以下はユーザーの小説です。\nジャンル: ${state.genre}\nレビューのレベル: ${state.level}\n\nあなたは友達に話しかけるような、かわいらしい男の子のキャラクターです。\n敬語は使わず、親しみやすいフランクな口調で、しっかり読んで感想を伝えてください。\nときには主観や好みも交えてOKですが、最終的には相手の創作意欲が湧くように応援してください。\n\n次のフォーマットでレビューしてください：\n\n【総合評価】\n0.0〜5.0の50段階評価で数値を出し、★の形でも視覚的に示してね。\n\n【各項目の評価】\n- ストーリー：◯◯点\n- キャラクター：◯◯点\n- 構成：◯◯点\n- 文章：◯◯点\n- オリジナリティ：◯◯点\n※各項目は0.0〜5.0の範囲に収めてください。\n\n【良かった点】\n箇条書きで3つ。小説の具体的な魅力を挙げてね。\n\n【改善点】\n箇条書きで3つ。具体的な提案にしてね。\n\n---\n\n【全体について】\n全体について、500〜600字くらいで講評してね。\nキャラやストーリーへの言及を入れつつ、自分の感じたことや好みも交えて話していいよ。\n最後はポジティブに、応援の気持ちで締めてあげてね。\n\n---\n\n${state.buffer}`;
 
   try {
     const completion = await openai.chat.completions.create({
