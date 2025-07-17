@@ -29,6 +29,15 @@ const levels = ["甘口", "中辛", "辛口"];
 const MAX_TOKENS = 128000;
 const MAX_CHARACTERS = 30000;
 
+// ←🔧 addResetButtonを外に移動
+const addResetButton = (items) => {
+  items.push({
+    type: 'action',
+    action: { type: 'message', label: 'リセット', text: 'リセット' }
+  });
+  return items;
+};
+
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
     await Promise.all(req.body.events.map(handleEvent));
@@ -69,14 +78,6 @@ async function handleEvent(event) {
 
   const state = userStates[userId];
 
-  const addResetButton = (items) => {
-    items.push({
-      type: 'action',
-      action: { type: 'message', label: 'リセット', text: 'リセット' }
-    });
-    return items;
-  };
-
   const stepHandlers = {
     genre: () => handleSelection(event, genres, 'level', 'レビューのレベルを選んでください：', levels),
     level: () => handleSelection(event, levels, 'aspect', 'レビューの観点を選んでください：', aspects),
@@ -98,10 +99,12 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
         text: '最大文字数を超えたため、これ以上送れません。このままレビューしてもよろしいですか？',
-        quickReply: { items: addResetButton([
-          { type: 'action', action: { type: 'message', label: 'はい', text: 'レビューしてください' } },
-          { type: 'action', action: { type: 'message', label: 'いいえ', text: 'キャンセル' } },
-        ]) }
+        quickReply: {
+          items: addResetButton([
+            { type: 'action', action: { type: 'message', label: 'はい', text: 'レビューしてください' } },
+            { type: 'action', action: { type: 'message', label: 'いいえ', text: 'キャンセル' } }
+          ])
+        }
       });
     }
 
@@ -112,7 +115,7 @@ async function handleEvent(event) {
       quickReply: {
         items: addResetButton([
           { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
-          { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } },
+          { type: 'action', action: { type: 'message', label: 'いいえ', text: 'いいえ' } }
         ])
       }
     });
@@ -152,7 +155,9 @@ async function handleEvent(event) {
         type: 'text',
         text: 'いい質問だね！それについて話すね！(まだ質問への具体回答処理は未実装)',
         quickReply: {
-          items: [{ type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }]
+          items: [
+            { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
+          ]
         }
       });
     } else {
@@ -160,7 +165,9 @@ async function handleEvent(event) {
         type: 'text',
         text: '作品やレビューに関する質問をしてね！',
         quickReply: {
-          items: [{ type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }]
+          items: [
+            { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
+          ]
         }
       });
     }
