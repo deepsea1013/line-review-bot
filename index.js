@@ -1,4 +1,4 @@
-// 修正済 index.js
+// index.js
 import express from 'express';
 import * as line from '@line/bot-sdk';
 import OpenAI from 'openai';
@@ -13,7 +13,6 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(config);
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const userStates = {};
@@ -23,7 +22,6 @@ const genres = [
   "現代ドラマ", "ホラー", "ミステリー", "エッセイ・ノンフィクション",
   "歴史・時代系", "詩・童話", "その他"
 ];
-
 const levels = ["甘口", "中辛", "辛口"];
 const MAX_CHARACTERS = 30000;
 
@@ -47,14 +45,18 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 
 async function handleEvent(event) {
   const userId = event.source.userId;
+  const profile = await client.getProfile(userId);
+  const userName = profile.displayName;
+
   if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、画像やスタンプ等は解析できないんです…',
+      text: 'ごめんなさい、画像やスタンプ等は解析できないんです…'
     });
   }
 
   const message = event.message.text;
+
   if (message === 'リセット') {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
@@ -75,19 +77,32 @@ async function handleEvent(event) {
 
   const state = userStates[userId];
 
-  const stepHandlers = {
-    genre: () => handleSelection(event, genres, 'level', 'レビューのレベルを選んでください：', levels),
-    level: () => {
-      state.level = message;
-      state.step = 'awaiting_text';
+  if (state.step === 'genre') {
+    if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'あなたの小説を送ってください（1000字以上）。'
+        text: 'ボタンを選択してください：',
+        quickReply: { items: addResetButton(genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } }))) }
       });
     }
-  };
+    state.genre = message;
+    state.step = 'level';
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'レビューのレベルを選んでください：',
+      quickReply: { items: addResetButton(levels.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
+    });
+  }
 
-  if (stepHandlers[state.step]) return stepHandlers[state.step]();
+  if (state.step === 'level') {
+    state.level = message;
+    state.step = 'awaiting_text';
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: 'あなたの小説を送ってください（1000字以上）。',
+      quickReply: { items: addResetButton([]) }
+    });
+  }
 
   if (state.step === 'awaiting_text' || state.step === 'awaiting_additional_text') {
     if (!state.buffer) state.buffer = "";
@@ -125,7 +140,7 @@ async function handleEvent(event) {
   }
 
   if (state.step === 'confirm_review_overflow' && message === 'レビューしてください') {
-    return generateAndSendReview(userId);
+    return generateAndSendReview(userId, userName);
   }
 
   if (state.step === 'awaiting_continue_confirm') {
@@ -136,87 +151,82 @@ async function handleEvent(event) {
     if (message === 'いいえ') {
       state.step = 'generating_review';
       await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう！ 読ませてもらうね🌟' });
-      setTimeout(() => generateAndSendReview(userId), 800);
+      setTimeout(() => generateAndSendReview(userId, userName), 800);
       return;
     }
   }
 
   if (state.step === 'review_done') {
-    if (/リセット/.test(message)) {
-      userStates[userId] = { step: 'genre' };
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: 'ジャンルを選んでください：',
-        quickReply: {
-          items: genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } }))
-        }
-      });
-    }
+    const prompt = `以下は${userName}さんの作品です。そのレビュー結果に関してユーザーが質問しています。
+ユーザーの質問: ${message}
+以下のレビュー内容に即して、誠実かつ具体的に回答してください。
 
-    if (/作品|レビュー/.test(message)) {
+---
+
+${state.lastReview}
+
+---`;
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: prompt }]
+      });
+
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'いい質問だね！それについて話すね！(まだ質問への具体回答処理は未実装)',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
-          ]
-        }
+        text: completion.choices[0].message.content,
+        quickReply: { items: [ { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } } ] }
       });
-    } else {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '作品やレビューに関する質問をしてね！',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
-          ]
-        }
-      });
+    } catch (err) {
+      console.error(err);
+      return client.replyMessage(event.replyToken, { type: 'text', text: '質問の処理中にエラーが発生しました。' });
     }
   }
 }
 
-function handleSelection(event, list, nextStep, prompt, nextList) {
-  const state = userStates[event.source.userId];
-  const message = event.message.text;
-  if (!list.includes(message)) {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: 'ボタンを選択してください：',
-      quickReply: { items: addResetButton(list.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
-    });
-  }
-  state[state.step] = message;
-  state.step = nextStep;
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: prompt,
-    quickReply: nextList ? { items: addResetButton(nextList.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) } : undefined
-  });
-}
-
-async function generateAndSendReview(userId) {
+async function generateAndSendReview(userId, userName) {
   const state = userStates[userId];
   if (!state || !state.buffer) {
-    return client.pushMessage(userId, {
-      type: 'text',
-      text: 'レビュー内容が見つかりません。最初からやり直してください。'
-    });
+    return client.pushMessage(userId, { type: 'text', text: 'レビュー内容が見つかりません。最初からやり直してください。' });
   }
 
-  const prompt = `以下はユーザーの小説です。\nジャンル: ${state.genre}\nレビューのレベル: ${state.level}\n\nあなたは友達に話しかけるような、かわいらしい男の子のキャラクターです。\n敬語は使わず、親しみやすいフランクな口調で、しっかり読んで感想を伝えてください。\nときには主観や好みも交えてOKですが、最終的には相手の創作意欲が湧くように応援してください。\n\n次のフォーマットでレビューしてください：\n\n【総合評価】\n0.0〜5.0の50段階評価で数値を出し、★の形でも視覚的に示してね。\n\n【各項目の評価】\n- ストーリー：◯◯点\n- キャラクター：◯◯点\n- 構成：◯◯点\n- 文章：◯◯点\n- オリジナリティ：◯◯点\n※各項目は0.0〜5.0の範囲に収めてください。\n\n【良かった点】\n箇条書きで3つ。小説の具体的な魅力を挙げてね。\n\n【改善点】\n箇条書きで3つ。具体的な提案にしてね。\n\n---\n\n【全体について】\n全体について、500〜600字くらいで講評してね。\nキャラやストーリーへの言及を入れつつ、自分の感じたことや好みも交えて話していいよ。\n最後はポジティブに、応援の気持ちで締めてあげてね。\n\n---\n\n${state.buffer}`;
+  const prompt = `以下は${userName}さんの小説です。ジャンル: ${state.genre}、レビューのレベル: ${state.level}。
+
+あなたは書評家のように鋭く、小説の構造やテーマを解釈するスキルを持った、フレンドリーな語り口のキャラクターです。
+レビューは以下の形式で、重複を避け簡潔に。甘口＝やさしめ、中辛＝中立、辛口＝厳しめの評価にしてください。
+ユーザーのことは「${userName}さん」と呼んでください。
+
+【総合評価】
+0.0〜5.0の50段階評価で数値と★を視覚的に表示
+
+【各項目の評価】
+- ストーリー：0.0〜5.0点
+- キャラクター：0.0〜5.0点
+- 構成：0.0〜5.0点
+- 文章：0.0〜5.0点
+- オリジナリティ：0.0〜5.0点
+
+【良かった点】（3つ、簡潔に、重複なし）
+【改善点】（3つ、提案型、簡潔に、重複なし）
+
+【全体について】（500〜600字、キャラやストーリーに触れつつ構造やテーマの深掘りあり、ポジティブに締める）
+
+---
+
+${state.buffer}`;
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: prompt }]
     });
 
     const fullText = completion.choices[0].message.content;
     state.step = 'review_done';
-    const messages = fullText.match(/([\s\S]{1,1900})(?=\n|$)/g);
+    state.lastReview = fullText;
 
+    const messages = fullText.match(/([\s\S]{1,1900})(?=\n|$)/g);
     for (const msg of messages) {
       await client.pushMessage(userId, { type: 'text', text: msg.trim() });
     }
@@ -224,17 +234,13 @@ async function generateAndSendReview(userId) {
     await client.pushMessage(userId, {
       type: 'text',
       text: '質問があれば、何でも聞いてね！\n最初からやり直す場合は、「リセット」を選択してね。',
-      quickReply: {
-        items: [
-          { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
-        ]
-      }
+      quickReply: { items: [ { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } } ] }
     });
   } catch (err) {
     console.error(err);
     await client.pushMessage(userId, {
       type: 'text',
-      text: 'レビューの生成中にエラーが出ました。文章が最大文字数をオーバーしたかもしれません。',
+      text: 'レビュー生成中にエラーが発生しました。文字数が多すぎる可能性があります。'
     });
   }
 }
