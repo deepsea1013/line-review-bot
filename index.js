@@ -51,7 +51,7 @@ async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめんなさい、画像やスタンプ等は解析できないんです…'
+      text: 'ごめんなさい、画像やスタンプ等は解析できません…'
     });
   }
 
@@ -157,15 +157,20 @@ async function handleEvent(event) {
   }
 
   if (state.step === 'review_done') {
-    const prompt = `以下は${userName}さんの作品です。そのレビュー結果に関してユーザーが質問しています。
-ユーザーの質問: ${message}
-以下のレビュー内容に即して、誠実かつ具体的に回答してください。
+    const prompt = `以下はユーザーが送信した小説と、そのレビュー結果です。
+ユーザーがこの内容に関して質問しています。
+小説とレビューの両方を考慮し、フレンドリーな語り口で、簡潔に（1〜3文）で答えてください。
+※「〇〇さんの作品では〜」のような前置きは不要です。
 
----
+【小説】:
+${state.buffer}
 
+【レビュー内容】:
 ${state.lastReview}
 
----`;
+【質問内容】:
+${message}
+`;
 
     try {
       const completion = await openai.chat.completions.create({
@@ -175,8 +180,12 @@ ${state.lastReview}
 
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: completion.choices[0].message.content,
-        quickReply: { items: [ { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } } ] }
+        text: completion.choices[0].message.content.trim(),
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
+          ]
+        }
       });
     } catch (err) {
       console.error(err);
@@ -193,24 +202,15 @@ async function generateAndSendReview(userId, userName) {
 
   const prompt = `以下は${userName}さんの小説です。ジャンル: ${state.genre}、レビューのレベル: ${state.level}。
 
-あなたは書評家のように鋭く、小説の構造やテーマを解釈するスキルを持った、フレンドリーな語り口のキャラクターです。
-レビューは以下の形式で、重複を避け簡潔に。甘口＝やさしめ、中辛＝中立、辛口＝厳しめの評価にしてください。
+あなたは読書好きで、フレンドリーな語り口のキャラクターです。
+感想は以下の形式で、重複を避け簡潔に。甘口＝やさしめ、中辛＝普通、辛口＝厳しめの評価にしてください。
 ユーザーのことは「${userName}さん」と呼んでください。
 
-【総合評価】
-0.0〜5.0の50段階評価で数値と★を視覚的に表示
-
-【各項目の評価】
-- ストーリー：0.0〜5.0点
-- キャラクター：0.0〜5.0点
-- 構成：0.0〜5.0点
-- 文章：0.0〜5.0点
-- オリジナリティ：0.0〜5.0点
-
-【良かった点】（3つ、簡潔に、重複なし）
-【改善点】（3つ、提案型、簡潔に、重複なし）
-
-【全体について】（500〜600字、キャラやストーリーに触れつつ構造やテーマの深掘りあり、ポジティブに締める）
+・500〜600字の感想
+・キャラやストーリーに触れつつ、読者として率直な感想を書く
+・良い点や改善点は重複なく簡潔に
+・全体的に冗長さを避け、的確な書評を意識
+・ポジティブに締める
 
 ---
 
