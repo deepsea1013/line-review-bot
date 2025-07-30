@@ -51,7 +51,7 @@ async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ごめん、画像やスタンプはまだ読めないんだ〜'
+      text: 'ごめんなさい、画像やスタンプには対応していないんです…！'
     });
   }
 
@@ -61,7 +61,7 @@ async function handleEvent(event) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ジャンルを選んでね：',
+      text: 'ジャンルを選んでください：',
       quickReply: { items: genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } })) }
     });
   }
@@ -70,7 +70,7 @@ async function handleEvent(event) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ジャンルを選んでね：',
+      text: 'ジャンルを選んでください：',
       quickReply: { items: genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } })) }
     });
   }
@@ -81,7 +81,7 @@ async function handleEvent(event) {
     if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'ボタンから選んでね：',
+        text: 'ジャンルはボタンから選んでください：',
         quickReply: { items: addResetButton(genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } }))) }
       });
     }
@@ -89,7 +89,7 @@ async function handleEvent(event) {
     state.step = 'level';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'レビューのレベルを選んでね：',
+      text: 'レビューのレベルを選んでください：',
       quickReply: { items: addResetButton(levels.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
     });
   }
@@ -98,7 +98,7 @@ async function handleEvent(event) {
     if (!levels.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '甘口・中辛・辛口の中から選んでね！',
+        text: '甘口・中辛・辛口の中から選んでください！',
         quickReply: { items: addResetButton(levels.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
       });
     }
@@ -106,7 +106,7 @@ async function handleEvent(event) {
     state.step = 'awaiting_text';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'あなたの小説を送ってね（1000字以上でお願い！）',
+      text: 'あなたの小説を送ってください（1000字以上が目安です）',
       quickReply: { items: addResetButton([]) }
     });
   }
@@ -116,14 +116,14 @@ async function handleEvent(event) {
     state.buffer += '\n' + message;
 
     if (state.step === 'awaiting_text' && state.buffer.length < 1000) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '1000字以上でお願い！' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '1000字以上でお願いできますか？' });
     }
 
     if (state.buffer.length > MAX_CHARACTERS) {
       state.step = 'confirm_review_overflow';
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '文字数が多すぎるみたい！このままレビューしてもいい？',
+        text: '文字数が最大文字数をオーバーしました。このままレビューを進めても大丈夫ですか？',
         quickReply: {
           items: addResetButton([
             { type: 'action', action: { type: 'message', label: 'はい', text: 'レビューしてください' } },
@@ -136,7 +136,7 @@ async function handleEvent(event) {
     state.step = 'awaiting_continue_confirm';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '続きを送る？',
+      text: '続きを送りますか？',
       quickReply: {
         items: addResetButton([
           { type: 'action', action: { type: 'message', label: 'はい', text: 'はい' } },
@@ -153,11 +153,11 @@ async function handleEvent(event) {
   if (state.step === 'awaiting_continue_confirm') {
     if (message === 'はい') {
       state.step = 'awaiting_additional_text';
-      return client.replyMessage(event.replyToken, { type: 'text', text: '続きのテキストを送ってね！' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '続きのテキストを送ってください！' });
     }
     if (message === 'いいえ') {
       state.step = 'generating_review';
-      await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとう！読ませてもらうね🌟' });
+      await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとうございます！読ませていただきますね🌟' });
       generateAndSendReview(userId, userName);
       return;
     }
@@ -165,8 +165,7 @@ async function handleEvent(event) {
 
   if (state.step === 'review_done') {
     const prompt = `以下はユーザーが送った小説と、そのレビューです。
-ユーザーがこの内容について質問しているので、的確に答えてください。
-小説とレビューをふまえた上で、自然でフレンドリーな語り口で、簡潔に（1〜3文）で返答してください。
+ユーザーがこの内容について質問しています。小説とレビューを踏まえて、自然でフレンドリーな語り口で、簡潔に1〜3文でお答えください。
 
 【小説】:
 ${state.buffer}
@@ -175,8 +174,7 @@ ${state.buffer}
 ${state.lastReview}
 
 【質問】:
-${message}
-`;
+${message}`;
 
     try {
       const completion = await openai.chat.completions.create({
@@ -195,7 +193,7 @@ ${message}
       });
     } catch (err) {
       console.error(err);
-      return client.replyMessage(event.replyToken, { type: 'text', text: '質問に答えるときにエラーが出たみたい。' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '質問の回答中にエラーが発生しました。' });
     }
   }
 }
@@ -203,16 +201,15 @@ ${message}
 async function generateAndSendReview(userId, userName) {
   const state = userStates[userId];
   if (!state || !state.buffer) {
-    return client.pushMessage(userId, { type: 'text', text: 'レビューできる内容が見つからなかったよ。最初からリセットしてね。' });
+    return client.pushMessage(userId, { type: 'text', text: 'レビューできる内容が見つかりませんでした。最初からリセットしてください。' });
   }
 
   const prompt = `以下は${userName}さんの小説です。ジャンル: ${state.genre}、レビューのレベル: ${state.level}。
 
 あなたは読書好きで、フレンドリーだけど鋭い視点を持った読者です。
-感想の冒頭は、作品を読んだ率直な一言から始め、そのあとに【良かった点】【改善点】【全体について】をそれぞれ3点ずつ簡潔に、重複せず記述してください。
-文章は500〜600字程度にまとめ、感想は読者目線でキャラクターやストーリーに言及しつつ、自分の好みや感じたことを率直に述べてください。
-口調はフレンドリーながらも、内容はプロの書評家のような鋭さを意識してください。
-最後は必ずポジティブな一言で締めくくってください。
+読後の率直な感想から始めて、自然な流れで感じたことを述べてください。
+キャラクターやストーリーへの印象、自分の好みや解釈を交えて、敬語かつ親しみある語り口で500〜600字程度にまとめてください。
+堅苦しくなりすぎず、鋭い読みも交えながら、最後は前向きな一言で締めてください。
 
 ---
 
@@ -235,7 +232,7 @@ ${state.buffer}`;
 
     await client.pushMessage(userId, {
       type: 'text',
-      text: '質問があれば、何でも聞いてね！\n最初からやり直す場合は、「リセット」を選択してね。',
+      text: '質問があれば、なんでも聞いてくださいね！\n最初からやり直す場合は「リセット」を押してください。',
       quickReply: {
         items: [
           { type: 'action', action: { type: 'message', label: 'リセット', text: 'リセット' } }
@@ -246,7 +243,7 @@ ${state.buffer}`;
     console.error(err);
     await client.pushMessage(userId, {
       type: 'text',
-      text: 'レビュー中にエラーが出たか、文字数が多すぎたかも！'
+      text: 'レビュー中にエラーが発生したか、文字数が多すぎた可能性があります。'
     });
   }
 }
