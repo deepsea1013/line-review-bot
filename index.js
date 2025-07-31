@@ -70,7 +70,7 @@ async function handleEvent(event) {
     userStates[userId] = { step: 'genre' };
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'ジャンルを選んでください：',
+      text: 'ジャンルを選んでください。',
       quickReply: { items: genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } })) }
     });
   }
@@ -81,7 +81,7 @@ async function handleEvent(event) {
     if (!genres.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: 'ジャンルはボタンから選んでください：',
+        text: 'ジャンルはボタンから選んでください。',
         quickReply: { items: addResetButton(genres.map(g => ({ type: 'action', action: { type: 'message', label: g, text: g } }))) }
       });
     }
@@ -89,7 +89,7 @@ async function handleEvent(event) {
     state.step = 'level';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'レビューのレベルを選んでください：',
+      text: 'レビューのレベルを選んでください。',
       quickReply: { items: addResetButton(levels.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
     });
   }
@@ -98,7 +98,7 @@ async function handleEvent(event) {
     if (!levels.includes(message)) {
       return client.replyMessage(event.replyToken, {
         type: 'text',
-        text: '甘口・中辛・辛口の中から選んでください！',
+        text: '甘口・中辛・辛口の中から選んでください。',
         quickReply: { items: addResetButton(levels.map(l => ({ type: 'action', action: { type: 'message', label: l, text: l } }))) }
       });
     }
@@ -106,7 +106,7 @@ async function handleEvent(event) {
     state.step = 'awaiting_text';
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'あなたの小説を送ってください（1000字以上が目安です）',
+      text: 'あなたの小説を送ってください。\n（最低1000字以上）',
       quickReply: { items: addResetButton([]) }
     });
   }
@@ -116,7 +116,7 @@ async function handleEvent(event) {
     state.buffer += '\n' + message;
 
     if (state.step === 'awaiting_text' && state.buffer.length < 1000) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: '1000字以上でお願いできますか？' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '1000字以上でお願いします。' });
     }
 
     if (state.buffer.length > MAX_CHARACTERS) {
@@ -153,11 +153,11 @@ async function handleEvent(event) {
   if (state.step === 'awaiting_continue_confirm') {
     if (message === 'はい') {
       state.step = 'awaiting_additional_text';
-      return client.replyMessage(event.replyToken, { type: 'text', text: '続きのテキストを送ってください！' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: '続きを送ってください！' });
     }
     if (message === 'いいえ') {
       state.step = 'generating_review';
-      await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとうございます！読ませていただきますね🌟' });
+      await client.replyMessage(event.replyToken, { type: 'text', text: 'ありがとうございます！\n読ませてもらうね🌟' });
       generateAndSendReview(userId, userName);
       return;
     }
@@ -207,9 +207,10 @@ async function generateAndSendReview(userId, userName) {
   const prompt = `以下は${userName}さんの小説です。ジャンル: ${state.genre}、レビューのレベル: ${state.level}。
 
 あなたは読書好きで、フレンドリーだけど鋭い視点を持った読者です。
-読後の率直な感想から始めて、自然な流れで感じたことを述べてください。
-キャラクターやストーリーへの印象、自分の好みや解釈を交えて、敬語かつ親しみある語り口で500〜600字程度にまとめてください。
-堅苦しくなりすぎず、鋭い読みも交えながら、最後は前向きな一言で締めてください。
+感想の冒頭は、作品を読んだ率直な一言から始め、良かった点や改善点などを交えつつ自然な流れで感じたことを述べてください。
+キャラクターやストーリーへの印象、自分の好みや解釈を交えて、親しみある語り口で500〜600字程度にまとめてください。
+口調はフレンドリーながらも、内容はプロの書評家のような鋭さを意識してください。
+最後は必ずポジティブな一言で締めくくってください。
 
 ---
 
